@@ -22,8 +22,14 @@ uv pip install -r requirements.txt
 
 ## client 
 - cd into client directory
-- run command - streamlit run streamlit-main.py
+- run command - 
+```bash
+streamlit run streamlit-main.py
+```
 
 ## server
 - cd into server directory
-- run command -  uv run uvicorn main:app --reload
+- run command -  
+```bash
+uv run uvicorn main:app --reload
+```
