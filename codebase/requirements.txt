@@ -3,3 +3,5 @@ fastapi
 uvicorn
 chromadb
 sentence_transformers
+transformers 
+torch

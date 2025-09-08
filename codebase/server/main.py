@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
 import chromadb
 from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 import re
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
@@ -74,14 +75,17 @@ def get_top_k_similar(question_embedding, embeddings, documents, k=3):
     top_docs = [(documents[i], float(similarities[i])) for i in top_k_indices]
     return top_docs
 
+tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+llm_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+generator = pipeline("text2text-generation", model=llm_model, tokenizer=tokenizer)
+
 @app.post("/chat")
 async def chat(request: Request):
     data = await request.json()
-    print('data from frontend', data)
     question = data.get("question", "")
-    
-    # Step 1: Embed the question
-    question_emb = model.encode([question])[0]
+    print(question)
+    # Step 1: Embed question (your existing embedding model)
+    question_emb = model.encode([question])[0]  # assumes your embedding model is loaded as 'model'
 
     # Step 2: Fetch all documents and embeddings
     db_data = collection.get(include=['documents','embeddings'])
@@ -90,8 +94,20 @@ async def chat(request: Request):
 
     # Step 3: Find top-K similar docs
     top_docs = get_top_k_similar(question_emb, embeddings, documents, k=3)
-    print('similar data', top_docs)
-    return {"answer": top_docs}
+    context = "\n\n".join([doc for doc, _ in top_docs])
+
+    # Step 4: Build prompt for LLM
+    prompt = f"Context:\n{context}\n\nQuestion: {question}\nAnswer concisely:"
+
+    # Step 5: Generate answer using local LLM
+    try:
+        output = generator(prompt, max_length=150, do_sample=True)
+        answer = output[0]['generated_text']
+        print(answer)
+    except Exception as e:
+        answer = f"Local LLM Error: {e}"
+
+    return {"answer": answer}
 
 
     # Step 4: Build context for LLM
