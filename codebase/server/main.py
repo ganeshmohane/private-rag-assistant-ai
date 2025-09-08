@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
 import chromadb
 from sentence_transformers import SentenceTransformer
+import re
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import requests 
@@ -19,29 +20,48 @@ model = SentenceTransformer()
 collection = client.get_or_create_collection(name="documents")
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
+
+def chunk_text(text, chunk_size=200):
+    sentences = re.split(r'(?<=[.!?]) +', text)
+    chunks, current = [], ""
+    for sent in sentences:
+        if len(current) + len(sent) <= chunk_size:
+            current += " " + sent
+        else:
+            chunks.append(current.strip())
+            current = sent
+    if current:
+        chunks.append(current.strip())
+    return chunks
+
 @app.post('/upload_text/')
 async def upload_text(file: UploadFile):
     text = (await file.read()).decode('utf-8')
-    #print('data received on server:', text)
-    embedding = model.encode([text])[0].tolist()
-    #print('data converted into vectors:',embedding)
-    collection.add(
-        documents=[text],
-        embeddings=[embedding],
-        ids=[file.filename]
-    )
+    chunks = chunk_text(text, chunk_size=300)
+    
+    for i, chunk in enumerate(chunks):
+        embedding = model.encode([chunk])[0].tolist()
+        collection.add(
+            documents=[chunk],
+            embeddings=[embedding],
+            ids=[f"{file.filename}_{i}"]
+        )
 
-    return { "status" : "Successfully Stored" }
+    return { "status": f"Stored {len(chunks)} chunks from {file.filename}" }
+
 
 @app.get('/fetch_embeddings')
 def fetch_embeddings():
-    data = collection.get(include=['documents','embeddings','metadatas'])
+    data = collection.get(
+        include=['documents','embeddings','metadatas'],
+        limit=10000
+    )
+    print(data)
     return JSONResponse(content={
         'ids' : data['ids'],
         'documents': data['documents'],
         'embeddings': [list(map(float, emb)) for emb in data['embeddings']]
     })
-
 
 def cosine_similarity(a, b):
     a = np.array(a)
@@ -51,7 +71,7 @@ def cosine_similarity(a, b):
 def get_top_k_similar(question_embedding, embeddings, documents, k=3):
     similarities = [cosine_similarity(question_embedding, emb) for emb in embeddings]
     top_k_indices = np.argsort(similarities)[::-1][:k]
-    top_docs = [documents[i] for i in top_k_indices]
+    top_docs = [(documents[i], float(similarities[i])) for i in top_k_indices]
     return top_docs
 
 @app.post("/chat")
@@ -59,7 +79,7 @@ async def chat(request: Request):
     data = await request.json()
     print('data from frontend', data)
     question = data.get("question", "")
-
+    
     # Step 1: Embed the question
     question_emb = model.encode([question])[0]
 
@@ -70,9 +90,10 @@ async def chat(request: Request):
 
     # Step 3: Find top-K similar docs
     top_docs = get_top_k_similar(question_emb, embeddings, documents, k=3)
-    print('similar data',top_docs)
-    return {'answer': top_docs }
-    
+    print('similar data', top_docs)
+    return {"answer": top_docs}
+
+
     # Step 4: Build context for LLM
     # context = "\n\n".join(top_docs)
     # prompt = f"Context:\n{context}\n\nQuestion: {question}\nAnswer:"
