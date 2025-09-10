@@ -75,9 +75,9 @@ def get_top_k_similar(question_embedding, embeddings, documents, k=3):
     top_docs = [(documents[i], float(similarities[i])) for i in top_k_indices]
     return top_docs
 
-tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
-llm_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
-generator = pipeline("text2text-generation", model=llm_model, tokenizer=tokenizer)
+# tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+# llm_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+# generator = pipeline("text2text-generation", model=llm_model, tokenizer=tokenizer)
 
 @app.post("/chat")
 async def chat(request: Request):
@@ -100,38 +100,35 @@ async def chat(request: Request):
     prompt = f"Context:\n{context}\n\nQuestion: {question}\nAnswer concisely:"
 
     # Step 5: Generate answer using local LLM
-    try:
-        output = generator(prompt, max_length=150, do_sample=True)
-        answer = output[0]['generated_text']
-        print(answer)
-    except Exception as e:
-        answer = f"Local LLM Error: {e}"
-
-    return {"answer": answer}
-
-
-    # Step 4: Build context for LLM
-    # context = "\n\n".join(top_docs)
-    # prompt = f"Context:\n{context}\n\nQuestion: {question}\nAnswer:"
-
-    ## Step 5: Call Hugging Face Inference API
-    # headers = {"Authorization": f"Bearer {HUGGINGFACE_TOKEN}"}
-    # payload = {"inputs": prompt}
     # try:
-    #     response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
-    #     print("Raw response:", response.text)
-    #     if response.status_code == 200:
-    #         result = response.json()
-    #         # Hugging Face API returns 'generated_text' or similar, depends on model
-    #         answer = result.get("generated_text") or (
-    #             result[0]["generated_text"] if isinstance(result, list) and "generated_text" in result[0] else str(result)
-    #         )
-    #     else:
-    #         # Print full error for debugging
-    #         answer = f"HuggingFace Error: {response.status_code}: {response.text}"
+    #     output = generator(prompt, max_length=150, do_sample=True)
+    #     answer = output[0]['generated_text']
+    #     print(answer)
     # except Exception as e:
-    #     answer = f"HuggingFace Connection Error: {e}"
+    #     answer = f"Local LLM Error: {e}"
+
     # return {"answer": answer}
+
+
+    # Step 5: Build context for LLM
+    headers = {"Authorization": f"Bearer {HUGGINGFACE_TOKEN}"}
+    payload = {"inputs": prompt}
+
+    try:
+        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=60)
+        if response.status_code == 200:
+            result = response.json()
+            # Hugging Face API returns list of dicts like [{"generated_text": "..."}]
+            if isinstance(result, list) and "generated_text" in result[0]:
+                answer = result[0]["generated_text"]
+            else:
+                answer = str(result)
+        else:
+            answer = f"HuggingFace Error {response.status_code}: {response.text}"  
+            print(answer)
+    except Exception as e:
+      
+        answer = f"HuggingFace Connection Error: {e}"
 
 @app.get('/hello/')
 def hello():
